@@ -33,7 +33,7 @@ import {
   writeFileSync
 } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { basename, dirname, join, resolve } from 'node:path';
+import { basename, dirname, join, relative, resolve } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { inflateRawSync } from 'node:zlib';
 import {
@@ -50,6 +50,7 @@ import {
   loadConfig,
   log,
   npmCommand,
+  listPackageDirs,
   parseArgs,
   parseShasums,
   prunePackageSources,
@@ -346,17 +347,32 @@ function pruneStagedTree(config, options) {
     // developers, not for someone installing a desktop app.
     return name.endsWith('.md') || name.endsWith('.map') || name.endsWith('.d.ts');
   });
+  // A machine-readable record of what the pruning pass did, uploaded with the
+  // failure diagnostics: guessing at staging behaviour from a log excerpt is how
+  // two CI round trips were spent, so the facts are written down instead.
+  const report = {
+    documentationEntriesRemoved: removed,
+    srcPruning: options['prune-src'] === true ? 'enabled' : 'disabled',
+    srcTreesRemoved: [],
+    packageCount: listPackageDirs(modulesRoot).length,
+    packagesWithSrc: listPackageDirs(modulesRoot).filter((dir) => existsSync(join(dir, 'src'))).length
+  };
   // `src/` pruning is OFF by default. It removes ~332 KiB out of a ~400 MB
   // install and it already cost two full CI round trips: `koffi`'s entry file is
   // a one-line re-export of `./src/koffi/index.js`, so deleting `src` made the
   // plugin tree fail to load. The check-based heuristic remains available behind
   // `--prune-src`, but the default answer is now "keep everything".
   if (options['prune-src'] === true) {
+    const before = listPackageDirs(modulesRoot).filter((dir) => existsSync(join(dir, 'src')));
     const sourcesRemoved = prunePackageSources(modulesRoot);
+    report.srcTreesRemoved = before
+      .filter((dir) => !existsSync(join(dir, 'src')))
+      .map((dir) => relative(modulesRoot, dir));
     log(`pruned ${removed} documentation/source-map entries and ${sourcesRemoved} provably-unused package src/ trees (--prune-src)`);
-    return;
+  } else {
+    log(`pruned ${removed} documentation/source-map entries; src/ left intact (default)`);
   }
-  log(`pruned ${removed} documentation/source-map entries; src/ left intact (default)`);
+  writeFileSync(join(config.distRoot, 'prune-report.json'), `${JSON.stringify(report, undefined, 2)}\n`, 'utf8');
 }
 
 /** Write the provenance record carried inside the installer. */

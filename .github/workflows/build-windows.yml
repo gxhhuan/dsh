@@ -89,23 +89,49 @@ jobs:
           name: staging-diagnostics-attempt-${{ github.run_attempt }}
           path: |
             build/build-info.json
+            build/prune-report.json
             build/portable/VERSION.txt
           # The smoke test prints its whole diagnostic to stdout, which the job
           # log always carries; this artifact only adds the provenance record.
           if-no-files-found: ignore
 
-      - name: Install Inno Setup
+      - name: Locate Inno Setup (preinstalled on the runner image)
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
-          # Pinned for reproducibility. If this version disappears from the
-          # Chocolatey community feed, drop the --version flag to take latest.
-          choco install innosetup --version=6.5.0 --no-progress -y
-          $iscc = Join-Path ${env:ProgramFiles(x86)} 'Inno Setup 6\ISCC.exe'
-          if (-not (Test-Path $iscc)) { $iscc = Join-Path $env:ProgramFiles 'Inno Setup 6\ISCC.exe' }
-          if (-not (Test-Path $iscc)) { throw 'ISCC.exe not found after installing Inno Setup' }
-          "ISCC=$iscc" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
-          & $iscc /? | Select-Object -First 1
+          # The windows-latest image already ships Inno Setup (6.7.1 as of the
+          # Windows Server 2025 image). Installing it from Chocolatey is both
+          # unnecessary and a liability: pinning `--version=6.5.0` failed with a
+          # 404 because that version is not published there at all.
+          $iscc = Get-Command ISCC.exe -ErrorAction SilentlyContinue
+          if ($iscc) {
+            $path = $iscc.Source
+          } else {
+            $candidates = @(
+              (Join-Path ${env:ProgramFiles(x86)} 'Inno Setup 6\ISCC.exe'),
+              (Join-Path $env:ProgramFiles 'Inno Setup 6\ISCC.exe'),
+              (Join-Path ${env:ProgramFiles(x86)} 'Inno Setup 7\ISCC.exe'),
+              (Join-Path $env:ProgramFiles 'Inno Setup 7\ISCC.exe')
+            )
+            $path = $candidates | Where-Object { $_ -and (Test-Path $_) } | Select-Object -First 1
+          }
+          if (-not $path) {
+            # Last resort only: the runner image always has it, so reaching here
+            # means the image changed and the package must be fetched.
+            Write-Warning 'ISCC.exe not found on the image; installing from Chocolatey (latest)'
+            choco install innosetup --no-progress -y
+            $path = @(
+              (Join-Path ${env:ProgramFiles(x86)} 'Inno Setup 6\ISCC.exe'),
+              (Join-Path $env:ProgramFiles 'Inno Setup 6\ISCC.exe')
+            ) | Where-Object { $_ -and (Test-Path $_) } | Select-Object -First 1
+          }
+          if (-not $path) { throw 'ISCC.exe could not be located or installed' }
+          # Record the compiler version: the vendored Simplified Chinese .isl
+          # targets Inno Setup 6.5+, and a mismatch should be visible in the log.
+          $version = (Get-Item $path).VersionInfo.ProductVersion
+          Write-Host "ISCC      : $path"
+          Write-Host "ISCC ver  : $version"
+          "ISCC=$path" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
 
       - name: Compile the installer
         shell: pwsh
