@@ -44,9 +44,9 @@ uses the npm prefix instead of copying packages by hand.
 The staged tree is a subset of the published packages: Markdown, source maps,
 `.d.ts` files, `LICENSE` copies, and each package's `src/` source directory are
 removed (a package whose entry points live under `src/` is left untouched).
-This is a distribution-size measure — Gitee caps release attachments at 100 MB
-— and the smoke test runs against the pruned tree, so the trimming is verified
-on every build rather than assumed.
+This is a distribution-size measure that keeps the installer small for Release
+assets and mirrors; the smoke test runs against the pruned tree, so the
+trimming is verified on every build rather than assumed.
 
 ## User data
 

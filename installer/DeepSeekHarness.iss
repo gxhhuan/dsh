@@ -24,11 +24,22 @@
 #define MyAppId "{{9C1F3D2A-7B45-4E8C-9F1A-2D6E5B4C7A81}"
 #define DshDataDirName ".dsh"
 
+; Optional build number (the GitHub Actions run number). AppVerName is what the
+; wizard's welcome page shows as [name/ver] and what Add/Remove Programs lists,
+; so putting the build number there is what lets several builds of the same dsh
+; version be told apart on a user's machine. The installer file name stays free
+; of it so release asset names remain stable.
+#ifdef BuildNumber
+  #define MyAppVerName MyAppName + " " + MyAppVersion + "." + BuildNumber
+#else
+  #define MyAppVerName MyAppName + " " + MyAppVersion
+#endif
+
 [Setup]
 AppId={#MyAppId}
 AppName={#MyAppName}
 AppVersion={#MyAppVersion}
-AppVerName={#MyAppName} {#MyAppVersion}
+AppVerName={#MyAppVerName}
 AppPublisher={#MyAppPublisher}
 VersionInfoVersion={#MyAppVersion}
 VersionInfoDescription={#MyAppName} setup
@@ -48,7 +59,7 @@ PrivilegesRequired=lowest
 ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
 SetupLogging=yes
-UninstallDisplayName={#MyAppName} {#MyAppVersion}
+UninstallDisplayName={#MyAppVerName}
 #if FileExists(AddBackslash(SourcePath) + "..\assets\app.ico")
 SetupIconFile=..\assets\app.ico
 UninstallDisplayIcon={app}\launchers\app.ico

@@ -40,7 +40,6 @@ param(
   [string]$DshVersion = $(if ($env:DSH_VERSION) { $env:DSH_VERSION } else { '0.1.5-rc.3' }),
   [string]$NodeVersion = $(if ($env:NODE_VERSION) { $env:NODE_VERSION } else { '24.21.0' }),
   [string]$Registry = $env:NPM_REGISTRY,
-  [string]$GiteeRepo = $env:GITEE_REPO,
   [switch]$SkipSmoke,
   [switch]$SkipInno
 )
@@ -169,14 +168,8 @@ Get-ChildItem (Join-Path $root 'dist') | ForEach-Object {
 }
 
 Write-Host ''
-Write-Host 'Publish to Gitee (发行版):' -ForegroundColor Cyan
-if ($GiteeRepo) {
-  Write-Host "  `$env:GITEE_TOKEN = '<你的 Gitee 私人令牌>'"
-  Write-Host "  node scripts/upload-to-gitee.mjs --repo $GiteeRepo --tag v$DshVersion"
-} else {
-  Write-Host '  node scripts/upload-to-gitee.mjs --repo 你的用户名/仓库名 --tag v' -NoNewline
-  Write-Host $DshVersion
-  Write-Host '  （也可以直接在 Gitee 网页上创建发行版并拖入 dist\*.exe）'
-}
-Write-Host '  注意：Gitee 单个附件上限 100MB；超限时脚本会提前拒绝并给出处理建议。'
+Write-Host 'Publish to GitHub (发行版 = Release):' -ForegroundColor Cyan
+Write-Host "  git tag v$DshVersion; git push origin v$DshVersion   # CI 会重新构建并自动发 Release"
+Write-Host '  或者把这台机器上的产物手工挂到 GitHub Release（Actions 产物是首选，本脚本用于验证）'
+
 

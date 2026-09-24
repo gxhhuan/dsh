@@ -309,8 +309,8 @@ function pruneStagedTree(config) {
     return name.endsWith('.md') || name.endsWith('.map') || name.endsWith('.d.ts');
   });
   // Published packages run from `lib/`; `src/` is audit-only TypeScript that is
-  // ~20 MB per install. Gitee's 100 MB per-release-attachment limit is why this
-  // matters most, but every distribution channel benefits.
+  // ~20 MB per install. Pruning with the docs also keeps the installer well
+  // inside upload and mirror limits when it is distributed from a Release.
   const sourcesRemoved = prunePackageSources(modulesRoot);
   log(`pruned ${removed} documentation/source-map entries and ${sourcesRemoved} package src/ trees`);
 }

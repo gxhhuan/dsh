@@ -1,6 +1,7 @@
 name: build-windows
 
-# Builds DeepSeek-Harness-Setup-<version>-x64.exe on a real Windows runner.
+# Builds DeepSeek-Harness-Setup-<version>-x64.exe on a real Windows runner and
+# attaches it to a GitHub Release when a v* tag is pushed.
 #
 # Why Windows and not the developer's macOS: @deepseek-ai/dsh depends on
 # platform-specific optional packages (sharp-win32-x64,
@@ -15,14 +16,12 @@ on:
   workflow_dispatch:
     inputs:
       dsh_version:
-        description: '@deepseek-ai/dsh version to package'
-        required: true
-        default: '0.1.5-rc.3'
+        description: '@deepseek-ai/dsh version to package (empty = the default in package.json)'
+        required: false
         type: string
       node_version:
-        description: 'Node.js runtime version to bundle'
-        required: true
-        default: '24.21.0'
+        description: 'Node.js runtime version to bundle (empty = the default in package.json)'
+        required: false
         type: string
   push:
     tags:
@@ -32,9 +31,13 @@ permissions:
   contents: write
 
 env:
-  DSH_VERSION: ${{ inputs.dsh_version || '0.1.5-rc.3' }}
-  NODE_VERSION: ${{ inputs.node_version || '24.21.0' }}
+  # `inputs` is only populated for workflow_dispatch and `github.event.inputs`
+  # only for events that carry a payload, so both are tried before the literal
+  # default. Tag pushes therefore never get an empty version.
+  DSH_VERSION: ${{ inputs.dsh_version || github.event.inputs.dsh_version || '0.1.5-rc.3' }}
+  NODE_VERSION: ${{ inputs.node_version || github.event.inputs.node_version || '24.21.0' }}
   DSH_ARCH: x64
+  BUILD_NUMBER: ${{ github.run_number }}
   # Optional: set a repository variable NPM_REGISTRY to point npm at a mirror
   # when the default registry is slow or blocked. Empty means "use the default".
   NPM_REGISTRY: ${{ vars.NPM_REGISTRY || '' }}
@@ -57,9 +60,10 @@ jobs:
       - name: Show the resolved versions
         shell: pwsh
         run: |
-          Write-Host "dsh   : $env:DSH_VERSION"
-          Write-Host "node  : $env:NODE_VERSION"
-          Write-Host "arch  : $env:DSH_ARCH"
+          Write-Host "dsh    : $env:DSH_VERSION"
+          Write-Host "node   : $env:NODE_VERSION"
+          Write-Host "arch   : $env:DSH_ARCH"
+          Write-Host "build  : #$env:BUILD_NUMBER"
           node --version
           npm --version
 
@@ -69,28 +73,34 @@ jobs:
       - name: Smoke-test the staged app (boot the Web UI for real)
         run: node scripts/smoke-test.mjs
 
-      - name: Upload the staging log on failure
+      - name: Upload the staging diagnostics on failure
         if: failure()
         uses: actions/upload-artifact@v4
         with:
-          name: staging-diagnostics
-          path: build/build-info.json
+          # The attempt number keeps re-runs from colliding on the same name.
+          name: staging-diagnostics-attempt-${{ github.run_attempt }}
+          path: |
+            build/build-info.json
+            build/*.json
           if-no-files-found: ignore
 
       - name: Install Inno Setup
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
-          choco install innosetup --no-progress -y
+          # Pinned for reproducibility. If this version disappears from the
+          # Chocolatey community feed, drop the --version flag to take latest.
+          choco install innosetup --version=6.5.0 --no-progress -y
           $iscc = Join-Path ${env:ProgramFiles(x86)} 'Inno Setup 6\ISCC.exe'
           if (-not (Test-Path $iscc)) { $iscc = Join-Path $env:ProgramFiles 'Inno Setup 6\ISCC.exe' }
           if (-not (Test-Path $iscc)) { throw 'ISCC.exe not found after installing Inno Setup' }
           "ISCC=$iscc" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          & $iscc /? | Select-Object -First 1
 
       - name: Compile the installer
         shell: pwsh
         run: |
-          & "$env:ISCC" "/DMyAppVersion=$env:DSH_VERSION" "installer\DeepSeekHarness.iss"
+          & "$env:ISCC" "/DMyAppVersion=$env:DSH_VERSION" "/DBuildNumber=$env:BUILD_NUMBER" "installer\DeepSeekHarness.iss"
           if ($LASTEXITCODE -ne 0) { throw "ISCC failed with exit code $LASTEXITCODE" }
           Get-ChildItem dist
 
@@ -109,7 +119,7 @@ jobs:
       - name: Upload the installer as a workflow artifact
         uses: actions/upload-artifact@v4
         with:
-          name: DeepSeek-Harness-Setup-x64
+          name: DeepSeek-Harness-Setup-x64-attempt-${{ github.run_attempt }}
           path: |
             dist/*.exe
             dist/SHA256SUMS.txt
@@ -127,7 +137,9 @@ jobs:
 
             - dsh `${{ env.DSH_VERSION }}`, bundled Node.js `${{ env.NODE_VERSION }}`
             - Per-user install, no administrator rights required.
-            - Configure your own DeepSeek API key on first run (Settings -> Models).
+            - Configure your own DeepSeek API key on first run: 设置 → 模型 (Settings → Models).
 
-            SHA256 digests are in `SHA256SUMS.txt`.
+            Verify the download against `SHA256SUMS.txt`. Code is unsigned, so
+            SmartScreen may ask for confirmation on first run.
           fail_on_unmatched_files: true
+
