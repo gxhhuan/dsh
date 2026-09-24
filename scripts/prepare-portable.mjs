@@ -52,6 +52,7 @@ import {
   npmCommand,
   parseArgs,
   parseShasums,
+  prunePackageSources,
   pruneTree,
   readPackageJson,
   requiredPlatformPackages,
@@ -307,7 +308,11 @@ function pruneStagedTree(config) {
     // developers, not for someone installing a desktop app.
     return name.endsWith('.md') || name.endsWith('.map') || name.endsWith('.d.ts');
   });
-  log(`pruned ${removed} documentation/source-map entries from node_modules`);
+  // Published packages run from `lib/`; `src/` is audit-only TypeScript that is
+  // ~20 MB per install. Gitee's 100 MB per-release-attachment limit is why this
+  // matters most, but every distribution channel benefits.
+  const sourcesRemoved = prunePackageSources(modulesRoot);
+  log(`pruned ${removed} documentation/source-map entries and ${sourcesRemoved} package src/ trees`);
 }
 
 /** Write the provenance record carried inside the installer. */

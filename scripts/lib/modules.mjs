@@ -234,6 +234,64 @@ export function pruneTree(root, shouldRemove) {
   return removed;
 }
 
+/**
+ * Remove `<package>/src` trees from a staged `node_modules`.
+ *
+ * The published packages run from `lib/` (or `dist/`), so `src` is audit-only
+ * material: ~20 MB per install of TypeScript sources a user never executes.
+ * Only a `src` directory that is the direct child of a package directory (the
+ * one holding `package.json`) is removed — nested `src` folders are left alone,
+ * because a dependency may resolve its runtime files through them.
+ * @returns the number of removed directories.
+ */
+export function prunePackageSources(nodeModulesRoot) {
+  if (!existsSync(nodeModulesRoot)) return 0;
+  let removed = 0;
+  for (const packageDir of listPackageDirs(nodeModulesRoot)) {
+    const srcDir = join(packageDir, 'src');
+    if (!existsSync(join(packageDir, 'package.json')) || !existsSync(srcDir)) continue;
+    const manifest = readPackageJson(packageDir);
+    if (manifest === undefined) continue;
+    // Never touch a package whose entry points live under src (source-shipped packages).
+    const entryPoints = [
+      manifest.main,
+      manifest.module,
+      manifest.types,
+      ...Object.values(manifest.exports ?? {}).map((value) =>
+        typeof value === 'string' ? value : value?.default
+      )
+    ].filter((value) => typeof value === 'string');
+    if (entryPoints.some((value) => value.replace(/^\.\//, '').startsWith('src/'))) continue;
+    try {
+      rmSync(srcDir, { recursive: true, force: true, maxRetries: 5 });
+      removed += 1;
+    } catch {
+      // Locked or read-only: keep the bytes rather than fail the build.
+    }
+  }
+  return removed;
+}
+
+/** Every package directory, including scoped ones, directly under `nodeModulesRoot`. */
+export function listPackageDirs(nodeModulesRoot) {
+  if (!existsSync(nodeModulesRoot)) return [];
+  const found = [];
+  for (const entry of readdirSync(nodeModulesRoot, { withFileTypes: true })) {
+    if (!entry.isDirectory() && !entry.isSymbolicLink()) continue;
+    const full = join(nodeModulesRoot, entry.name);
+    if (entry.name.startsWith('@')) {
+      for (const scoped of readdirSync(full, { withFileTypes: true })) {
+        if (scoped.isDirectory() || scoped.isSymbolicLink()) found.push(join(full, scoped.name));
+      }
+      continue;
+    }
+    if (entry.name === '.bin' || entry.name === '.cache') continue;
+    found.push(full);
+  }
+  return found;
+}
+
+
 /** Directory size in bytes, best effort. */
 export function directorySize(root) {
   if (!existsSync(root)) return 0;

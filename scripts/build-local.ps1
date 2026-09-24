@@ -40,6 +40,7 @@ param(
   [string]$DshVersion = $(if ($env:DSH_VERSION) { $env:DSH_VERSION } else { '0.1.5-rc.3' }),
   [string]$NodeVersion = $(if ($env:NODE_VERSION) { $env:NODE_VERSION } else { '24.21.0' }),
   [string]$Registry = $env:NPM_REGISTRY,
+  [string]$GiteeRepo = $env:GITEE_REPO,
   [switch]$SkipSmoke,
   [switch]$SkipInno
 )
@@ -139,7 +140,7 @@ Remove-Item (Join-Path $root 'dist') -Recurse -Force -ErrorAction SilentlyContin
 & $iscc "/DMyAppVersion=$DshVersion" (Join-Path $root 'installer\DeepSeekHarness.iss')
 if ($LASTEXITCODE -ne 0) { throw "ISCC failed with exit code $LASTEXITCODE" }
 
-Write-Step 'Step 4/4: checksums and summary'
+Write-Step 'Step 4/4: checksums, release notes, and summary'
 $installers = Get-ChildItem (Join-Path $root 'dist') -Filter '*.exe'
 if (-not $installers) { throw 'ISCC reported success but produced no .exe in dist\' }
 $lines = foreach ($file in $installers) {
@@ -149,8 +150,33 @@ $lines = foreach ($file in $installers) {
 $lines | Set-Content -Path (Join-Path $root 'dist\SHA256SUMS.txt') -Encoding ascii
 $lines | ForEach-Object { Write-Host "  $_" }
 
+$notes = @(
+  "## DeepSeek Harness Windows x64 — $DshVersion",
+  '',
+  '- 免管理员安装到用户目录；首次使用请在「设置 → 模型」里配置你自己的 DeepSeek API Key。',
+  "- 内置 Node.js $NodeVersion，目标机器无需安装 Node。",
+  '- 下载后可用 `SHA256SUMS.txt` 校验安装包完整性。',
+  '',
+  'Per-user install, no administrator rights required. Configure your own',
+  'DeepSeek API key on first run (Settings -> Models). Node.js is bundled.'
+) -join "`r`n"
+$notes | Set-Content -Path (Join-Path $root 'dist\RELEASE-NOTES.md') -Encoding utf8
+
 Write-Host ''
 Write-Host "Built in $($root)\dist:" -ForegroundColor Green
 Get-ChildItem (Join-Path $root 'dist') | ForEach-Object {
   Write-Host ("  {0,-52} {1,10:N1} MiB" -f $_.Name, ($_.Length / 1MB))
 }
+
+Write-Host ''
+Write-Host 'Publish to Gitee (发行版):' -ForegroundColor Cyan
+if ($GiteeRepo) {
+  Write-Host "  `$env:GITEE_TOKEN = '<你的 Gitee 私人令牌>'"
+  Write-Host "  node scripts/upload-to-gitee.mjs --repo $GiteeRepo --tag v$DshVersion"
+} else {
+  Write-Host '  node scripts/upload-to-gitee.mjs --repo 你的用户名/仓库名 --tag v' -NoNewline
+  Write-Host $DshVersion
+  Write-Host '  （也可以直接在 Gitee 网页上创建发行版并拖入 dist\*.exe）'
+}
+Write-Host '  注意：Gitee 单个附件上限 100MB；超限时脚本会提前拒绝并给出处理建议。'
+

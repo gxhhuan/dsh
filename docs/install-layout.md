@@ -39,6 +39,15 @@ have to sit in a real `node_modules` chain above that file. `npm install
 --prefix <dir>` produces exactly that layout, which is why the staging script
 uses the npm prefix instead of copying packages by hand.
 
+### What staging removes
+
+The staged tree is a subset of the published packages: Markdown, source maps,
+`.d.ts` files, `LICENSE` copies, and each package's `src/` source directory are
+removed (a package whose entry points live under `src/` is left untouched).
+This is a distribution-size measure — Gitee caps release attachments at 100 MB
+— and the smoke test runs against the pruned tree, so the trimming is verified
+on every build rather than assumed.
+
 ## User data
 
 ```
