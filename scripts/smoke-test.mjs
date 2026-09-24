@@ -34,10 +34,20 @@ import {
 const EXPECTED_TITLE = 'DeepSeek Harness';
 const STARTUP_URL = /dsh web:\s*(http:\/\/\S+?\/?\?token=[A-Za-z0-9_-]+)/;
 
-main().catch((error) => {
-  process.stderr.write(`[dsh-win] SMOKE FAILED: ${error.stack ?? error.message}\n`);
+/**
+ * A failing gate must be readable in the CI log without any authentication.
+ * GitHub serves stdout for a step reliably and is inconsistent about stderr, so
+ * the diagnostic goes to both, and a banner makes the interesting part easy to
+ * find in an otherwise long log.
+ */
+function reportFailure(error) {
+  const detail = error?.stack ?? error?.message ?? String(error);
+  process.stdout.write(`\n[dsh-win] ====== SMOKE TEST FAILED ======\n${detail}\n[dsh-win] ================================\n\n`);
+  process.stderr.write(`[dsh-win] SMOKE FAILED: ${detail}\n`);
   process.exitCode = 1;
-});
+}
+
+main().catch(reportFailure);
 
 async function main() {
   const options = parseArgs(process.argv.slice(2));
@@ -48,6 +58,7 @@ async function main() {
   if (!existsSync(config.binScript)) fail(`staged dsh entry point is missing: ${config.binScript}`);
 
   const runtime = pickRuntime(config);
+  log(`platform: ${process.platform}-${process.arch}, host node ${process.versions.node}, runner Node ${process.env.RUNNER_OS ?? '-'}`);
   log(`runtime: ${runtime.command}${runtime.fallback ? ' (Windows node.exe cannot run on this host; using the host Node)' : ''}`);
   log(`entry:   ${config.binScript}`);
 
@@ -76,16 +87,31 @@ function assertDump(config, runtime) {
       { DSH_HOME: home },
       90_000
     );
-    if (result.status !== 0) {
-      fail(`--dump-default-config exited ${result.status}\n${result.stderr || result.stdout}`);
+    if (result.status !== 0 || result.error !== undefined) {
+      fail(
+        `--dump-default-config did not exit cleanly\n` +
+          `      status : ${result.status}\n` +
+          `      signal : ${result.signal ?? '-'}\n` +
+          `      error  : ${result.error?.message ?? '-'}\n` +
+          `      command: ${runtime.command} ${config.binScript}\n` +
+          `      stdout : ${tail(result.stdout)}\n` +
+          `      stderr : ${tail(result.stderr)}`
+      );
     }
     if (result.stdout.length < 200) {
-      fail(`--dump-default-config produced suspiciously little output (${result.stdout.length} bytes)`);
+      fail(`--dump-default-config produced suspiciously little output (${result.stdout.length} bytes)\n      stdout: ${tail(result.stdout)}`);
     }
     log(`--dump-default-config OK (${result.stdout.split('\n').length} lines)`);
   } finally {
     rmSync(home, { recursive: true, force: true });
   }
+}
+
+/** Keep the tail of captured output: the end carries the diagnostic. */
+function tail(text, limit = 1500) {
+  const value = (text ?? '').trimEnd();
+  if (value.length === 0) return '(empty)';
+  return value.length <= limit ? value : `...${value.slice(-limit)}`;
 }
 
 /** Boot `--profile web --no-open` and verify the served shell. */
@@ -225,13 +251,6 @@ async function stopProcessTree(child) {
   }, 5000);
   await Promise.race([exited, new Promise((resolve) => setTimeout(resolve, 8000))]);
   clearTimeout(timer);
-  if (child.exitCode === null && child.signalCode === null) {
-    try {
-      child.kill('SIGKILL');
-    } catch {
-      // Already gone.
-    }
-  }
 }
 
 /** Synchronous bounded spawn; `spawnSync` accepts `timeout` directly. */
@@ -239,12 +258,17 @@ function spawnSyncBounded(command, args, extraEnv, timeoutMs) {
   const result = spawnSync(command, args, {
     encoding: 'utf8',
     timeout: timeoutMs,
-    killSignal: 'SIGKILL',
+    // SIGTERM is portable; Windows maps it to TerminateProcess. SIGKILL is not
+    // a valid Windows signal and would make this whole call fail synchronously.
+    killSignal: 'SIGTERM',
     windowsHide: true,
     env: { ...process.env, ...extraEnv }
   });
-  if (result.error !== undefined && result.status === null) {
-    fail(`could not run ${command}: ${result.error.message}`);
-  }
-  return { status: result.status, stdout: result.stdout ?? '', stderr: result.stderr ?? '' };
+  return {
+    status: result.status,
+    signal: result.signal ?? undefined,
+    error: result.error,
+    stdout: result.stdout ?? '',
+    stderr: result.stderr ?? ''
+  };
 }
