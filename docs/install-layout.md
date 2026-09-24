@@ -42,11 +42,11 @@ uses the npm prefix instead of copying packages by hand.
 ### What staging removes
 
 The staged tree is a subset of the published packages: Markdown, source maps,
-`.d.ts` files, and `LICENSE` copies are removed. A package's `src/` directory is
-removed only when nothing in that package can load from it at runtime — a check
-that exists because the first real build shipped a tree where `koffi`'s entry
-file was a re-export of `./src/koffi/index.js`. The smoke test runs against the
-pruned tree, so any trimming mistake fails the build instead of reaching a user.
+`.d.ts` files, and `LICENSE` copies are removed. Package `src/` directories are
+**kept by default**: an earlier build removed them and broke plugin loading,
+because `koffi`'s entry file is a re-export of `./src/koffi/index.js`. Opt in
+with `--prune-src` if the bytes ever matter, and note that staging now asserts
+koffi's re-export targets exist so that class of mistake fails where it is made.
 
 ## User data
 

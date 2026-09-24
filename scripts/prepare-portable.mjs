@@ -18,7 +18,7 @@
  *
  * Usage: node scripts/prepare-portable.mjs [--dsh-version <v>] [--node-version <v>]
  *                                          [--registry <url>] [--dist-dir <dir>]
- *                                          [--no-prune] [--no-src-prune]
+ *                                          [--no-prune] [--prune-src]
  */
 import {
   cpSync,
@@ -103,6 +103,7 @@ async function main() {
   installDsh(config);
   verifyStagedDependencies(config);
   if (options['no-prune'] !== true) pruneStagedTree(config, options);
+  verifyRuntimeModuleFiles(config);
   writeBuildInfo(config);
   verifyStagedLayout(config);
   verifyNoSecrets(config);
@@ -292,6 +293,43 @@ function verifyStagedDependencies(config) {
   log(`verified platform packages and ${config.dshPackage}@${dshManifest.version}`);
 }
 
+/**
+ * Assert that a package whose public entry re-exports from `src/` still has that
+ * `src/`: `koffi`'s `index.js` is `export { default } from "./src/koffi/index.js"`,
+ * and a tree without `koffi/src` fails to boot the plugin tree entirely. This is
+ * checked explicitly, right after staging, so a distribution-size mistake is
+ * reported by the step that made it instead of surfacing as a boot failure.
+ */
+function verifyRuntimeModuleFiles(config) {
+  const koffiDir = join(config.appModules, 'koffi');
+  const entry = join(koffiDir, 'index.js');
+  if (!existsSync(entry)) return; // koffi is not part of this dependency set
+  const targets = [];
+  const source = readTextFile(entry);
+  for (const match of source.matchAll(/["'](\.{1,2}\/[^"']+)["']/g)) {
+    targets.push(match[1]);
+  }
+  const missingTargets = targets.filter((relative) => !existsSync(join(koffiDir, relative)));
+  if (missingTargets.length > 0) {
+    fail(
+      `koffi's entry point ${entry} re-exports files that are not in the staged tree:\n` +
+        missingTargets.map((entry) => `      - ${entry}`).join('\n') +
+        `\n      staging deleted runtime code. Re-run without --prune-src and report this.`
+    );
+  }
+  log(`verified koffi entry re-exports resolve inside the staged tree (${targets.length} target(s))`);
+}
+
+/** Read a text file, returning '' when it cannot be read. */
+function readTextFile(file) {
+  try {
+    return readFileSync(file, 'utf8');
+  } catch (error) {
+    process.emitWarning(`could not read ${file}: ${error.message}`);
+    return '';
+  }
+}
+
 /** Remove Markdown, source maps, and type declarations from `node_modules`. */
 function pruneStagedTree(config, options) {
   let removed = 0;
@@ -308,16 +346,17 @@ function pruneStagedTree(config, options) {
     // developers, not for someone installing a desktop app.
     return name.endsWith('.md') || name.endsWith('.map') || name.endsWith('.d.ts');
   });
-  if (options['no-src-prune'] === true) {
-    log(`pruned ${removed} documentation/source-map entries; src/ pruning disabled by --no-src-prune`);
+  // `src/` pruning is OFF by default. It removes ~332 KiB out of a ~400 MB
+  // install and it already cost two full CI round trips: `koffi`'s entry file is
+  // a one-line re-export of `./src/koffi/index.js`, so deleting `src` made the
+  // plugin tree fail to load. The check-based heuristic remains available behind
+  // `--prune-src`, but the default answer is now "keep everything".
+  if (options['prune-src'] === true) {
+    const sourcesRemoved = prunePackageSources(modulesRoot);
+    log(`pruned ${removed} documentation/source-map entries and ${sourcesRemoved} provably-unused package src/ trees (--prune-src)`);
     return;
   }
-  // Published packages usually run from `lib/`, but "usually" is not a safety
-  // argument: `koffi` is a package whose entry file is a one-line re-export from
-  // `src/`, and pruning it broke the very first installer build. `prunePackageSources`
-  // now removes `src` only when nothing in the package can load from it.
-  const sourcesRemoved = prunePackageSources(modulesRoot);
-  log(`pruned ${removed} documentation/source-map entries and ${sourcesRemoved} provably-unused package src/ trees`);
+  log(`pruned ${removed} documentation/source-map entries; src/ left intact (default)`);
 }
 
 /** Write the provenance record carried inside the installer. */

@@ -23,8 +23,8 @@ on:
         description: 'Node.js runtime version to bundle (empty = the default in package.json)'
         required: false
         type: string
-      no_src_prune:
-        description: 'Skip the src/ pruning optimization (use this if staging breaks plugin loading)'
+      prune_src:
+        description: 'Enable the src/ pruning optimization (off by default: it once broke plugin loading)'
         required: false
         default: false
         type: boolean
@@ -65,6 +65,9 @@ jobs:
       - name: Show the resolved versions
         shell: pwsh
         run: |
+          # Printed so a pasted log identifies its own commit: a re-run replays
+          # the original commit, which once sent debugging down the wrong path.
+          Write-Host "commit : $(git rev-parse --short HEAD) ($(git log -1 --format=%s))"
           Write-Host "dsh    : $env:DSH_VERSION"
           Write-Host "node   : $env:NODE_VERSION"
           Write-Host "arch   : $env:DSH_ARCH"
@@ -73,7 +76,7 @@ jobs:
           npm --version
 
       - name: Stage the portable app (download Node, npm install, verify)
-        run: node scripts/prepare-portable.mjs ${{ inputs.no_src_prune && '--no-src-prune' || '' }}
+        run: node scripts/prepare-portable.mjs ${{ inputs.prune_src && '--prune-src' || '' }}
 
       - name: Smoke-test the staged app (boot the Web UI for real)
         run: node scripts/smoke-test.mjs
