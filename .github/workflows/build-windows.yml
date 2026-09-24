@@ -136,9 +136,17 @@ jobs:
       - name: Compile the installer
         shell: pwsh
         run: |
-          & "$env:ISCC" "/DMyAppVersion=$env:DSH_VERSION" "/DBuildNumber=$env:BUILD_NUMBER" "installer\DeepSeekHarness.iss"
+          & "$env:ISCC" "/DMyAppVersion=$env:DSH_VERSION" "/DBuildNumber=$env:BUILD_NUMBER" "installer\DeepSeekHarness.iss" | Write-Host
           if ($LASTEXITCODE -ne 0) { throw "ISCC failed with exit code $LASTEXITCODE" }
-          Get-ChildItem dist
+          $exe = Get-ChildItem dist -Filter '*.exe' | Select-Object -First 1
+          if (-not $exe) { throw 'ISCC reported success but produced no .exe' }
+          # A real installer embeds the whole staged app; a near-empty one means
+          # [Files] matched nothing, which must not be published as a success.
+          $sizeMb = [math]::Round($exe.Length / 1MB, 1)
+          Write-Host "installer : $($exe.Name) ($sizeMb MiB)"
+          if ($exe.Length -lt 50MB) {
+            throw "installer is only $sizeMb MiB; the staged app (~400 MB uncompressed) should compress well above 50 MiB. Check the [Files] source path."
+          }
 
       - name: Write SHA256SUMS
         shell: pwsh
