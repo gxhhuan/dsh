@@ -18,7 +18,7 @@
  *
  * Usage: node scripts/prepare-portable.mjs [--dsh-version <v>] [--node-version <v>]
  *                                          [--registry <url>] [--dist-dir <dir>]
- *                                          [--no-prune]
+ *                                          [--no-prune] [--no-src-prune]
  */
 import {
   cpSync,
@@ -102,7 +102,7 @@ async function main() {
 
   installDsh(config);
   verifyStagedDependencies(config);
-  if (options['no-prune'] !== true) pruneStagedTree(config);
+  if (options['no-prune'] !== true) pruneStagedTree(config, options);
   writeBuildInfo(config);
   verifyStagedLayout(config);
   verifyNoSecrets(config);
@@ -293,7 +293,7 @@ function verifyStagedDependencies(config) {
 }
 
 /** Remove Markdown, source maps, and type declarations from `node_modules`. */
-function pruneStagedTree(config) {
+function pruneStagedTree(config, options) {
   let removed = 0;
   const modulesRoot = config.appModules;
   removed += pruneTree(modulesRoot, (name, fullPath, isDirectory) => {
@@ -308,6 +308,10 @@ function pruneStagedTree(config) {
     // developers, not for someone installing a desktop app.
     return name.endsWith('.md') || name.endsWith('.map') || name.endsWith('.d.ts');
   });
+  if (options['no-src-prune'] === true) {
+    log(`pruned ${removed} documentation/source-map entries; src/ pruning disabled by --no-src-prune`);
+    return;
+  }
   // Published packages usually run from `lib/`, but "usually" is not a safety
   // argument: `koffi` is a package whose entry file is a one-line re-export from
   // `src/`, and pruning it broke the very first installer build. `prunePackageSources`

@@ -23,6 +23,11 @@ on:
         description: 'Node.js runtime version to bundle (empty = the default in package.json)'
         required: false
         type: string
+      no_src_prune:
+        description: 'Skip the src/ pruning optimization (use this if staging breaks plugin loading)'
+        required: false
+        default: false
+        type: boolean
   push:
     tags:
       - 'v*'
@@ -68,7 +73,7 @@ jobs:
           npm --version
 
       - name: Stage the portable app (download Node, npm install, verify)
-        run: node scripts/prepare-portable.mjs
+        run: node scripts/prepare-portable.mjs ${{ inputs.no_src_prune && '--no-src-prune' || '' }}
 
       - name: Smoke-test the staged app (boot the Web UI for real)
         run: node scripts/smoke-test.mjs

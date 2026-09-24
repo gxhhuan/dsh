@@ -309,8 +309,10 @@ function anyFileReferencesSrc(packageDir, srcDir) {
     let text;
     try {
       text = readFileSync(file, 'utf8');
-    } catch {
-      // Unreadable file: be conservative and keep `src`.
+    } catch (error) {
+      // Unreadable file on this platform (a Windows lock, a permission error):
+      // be conservative and keep `src`, but keep the reason visible.
+      process.emitWarning(`could not read ${file} while checking src usage: ${error.message}`);
       return true;
     }
     if (/["']\.{1,2}\/src\//.test(text)) return true;
@@ -400,12 +402,16 @@ export function readPackageJson(packageDir) {
   let target = packageDir;
   try {
     target = realpathSync(packageDir);
-  } catch {
+  } catch (error) {
+    process.emitWarning(`could not resolve ${packageDir}: ${error.message}`);
     return undefined;
   }
   try {
     return JSON.parse(readFileSync(join(target, 'package.json'), 'utf8'));
-  } catch {
+  } catch (error) {
+    // A missing or unreadable manifest is a real diagnostic: the caller treats
+    // `undefined` as "leave this package alone".
+    process.emitWarning(`could not read ${join(target, 'package.json')}: ${error.message}`);
     return undefined;
   }
 }
