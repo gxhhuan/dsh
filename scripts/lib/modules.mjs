@@ -320,6 +320,27 @@ function anyFileReferencesSrc(packageDir, srcDir) {
   return false;
 }
 
+/**
+ * Reduce a package version to the dotted-numeric form Windows file-version
+ * resources accept (one to four parts, digits only).
+ *
+ * `VersionInfoVersion` rejects anything else, and the abort message is obscure
+ * ("Value of [Setup] section directive VersionInfoVersion is invalid"), so this
+ * runs in one tested place — Node — and the workflow passes the result to ISCC
+ * as `/DMyVersionInfoVersion`. Coercion is deliberately forgiving but never
+ * silent: `0.1.5-rc.3` means `0.1.5`, and a leading component that is not
+ * numeric throws.
+ * @param version - a semver-ish version string, e.g. `0.1.5-rc.3`.
+ * @returns dotted numeric version, at most four components.
+ */
+export function windowsFileVersion(version) {
+  const numeric = String(version).match(/^(\d+(?:\.\d+){0,3})/);
+  if (numeric === null) {
+    fail(`cannot derive a Windows file version from ${JSON.stringify(version)}: it must start with digits, e.g. 0.1.5-rc.3`);
+  }
+  return numeric[1];
+}
+
 /** Every package directory, including scoped ones, directly under `nodeModulesRoot`. */
 export function listPackageDirs(nodeModulesRoot) {
   if (!existsSync(nodeModulesRoot)) return [];

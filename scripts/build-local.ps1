@@ -136,7 +136,14 @@ or download it from https://jrsoftware.org/isdl.php
 }
 Write-Host "  ISCC : $iscc"
 Remove-Item (Join-Path $root 'dist') -Recurse -Force -ErrorAction SilentlyContinue
-& $iscc "/DMyAppVersion=$DshVersion" (Join-Path $root 'installer\DeepSeekHarness.iss')
+# The Windows file version must be dotted numbers only; derive it with the same
+# testable Node helper the CI workflow uses rather than in PowerShell or ISPP.
+$fileVersion = (& node scripts/dist-meta.mjs --version $DshVersion).Split("`n") |
+  Where-Object { $_ -like 'fileVersion=*' } | ForEach-Object { $_.Split('=')[1] }
+$fileVersion = "$fileVersion".Trim()
+if (-not $fileVersion) { throw "could not derive a Windows file version from '$DshVersion'" }
+Write-Host "  file ver : $fileVersion"
+& $iscc "/DMyAppVersion=$DshVersion" "/DMyVersionInfoVersion=$fileVersion" (Join-Path $root 'installer\DeepSeekHarness.iss')
 if ($LASTEXITCODE -ne 0) { throw "ISCC failed with exit code $LASTEXITCODE" }
 
 Write-Step 'Step 4/4: checksums, release notes, and summary'

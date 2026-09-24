@@ -24,6 +24,19 @@
 #define MyAppId "{{9C1F3D2A-7B45-4E8C-9F1A-2D6E5B4C7A81}"
 #define DshDataDirName ".dsh"
 
+; Windows file-version resources accept only dotted numbers (1 to 4 parts), so a
+; pre-release tag cannot go into VersionInfoVersion: passing the npm version
+; `0.1.5-rc.3` aborts the compile with "Value of [Setup] section directive
+; VersionInfoVersion is invalid".
+;
+; The numeric value is derived in Node (`node scripts/dist-meta.mjs`), which is
+; testable, and must be passed in as /DMyVersionInfoVersion. Deriving it here was
+; attempted and abandoned: ISPP string/RegEx semantics cannot be exercised
+; without the compiler, and a wrong guess only shows up as a broken build.
+#ifndef MyVersionInfoVersion
+  #error Pass /DMyVersionInfoVersion=<numeric> (e.g. 0.1.5), or run scripts/build-local.ps1, which computes it. See the compile step in .github/workflows/build-windows.yml.
+#endif
+
 ; Optional build number (the GitHub Actions run number). AppVerName is what the
 ; wizard's welcome page shows as [name/ver] and what Add/Remove Programs lists,
 ; so putting the build number there is what lets several builds of the same dsh
@@ -41,7 +54,7 @@ AppName={#MyAppName}
 AppVersion={#MyAppVersion}
 AppVerName={#MyAppVerName}
 AppPublisher={#MyAppPublisher}
-VersionInfoVersion={#MyAppVersion}
+VersionInfoVersion={#MyVersionInfoVersion}
 VersionInfoDescription={#MyAppName} setup
 DefaultDirName={localappdata}\Programs\{#MyAppName}
 DefaultGroupName={#MyAppName}

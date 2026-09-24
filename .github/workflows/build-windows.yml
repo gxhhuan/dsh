@@ -75,6 +75,11 @@ jobs:
           node --version
           npm --version
 
+      - name: Resolve the version and the Windows file version
+        run: node scripts/dist-meta.mjs --version "$env:DSH_VERSION" --github-env
+        env:
+          DSH_VERSION: ${{ inputs.dsh_version || github.event.inputs.dsh_version || '0.1.5-rc.3' }}
+
       - name: Stage the portable app (download Node, npm install, verify)
         run: node scripts/prepare-portable.mjs ${{ inputs.prune_src && '--prune-src' || '' }}
 
@@ -136,7 +141,8 @@ jobs:
       - name: Compile the installer
         shell: pwsh
         run: |
-          & "$env:ISCC" "/DMyAppVersion=$env:DSH_VERSION" "/DBuildNumber=$env:BUILD_NUMBER" "installer\DeepSeekHarness.iss" | Write-Host
+          if (-not $env:DSH_FILE_VERSION) { throw 'DSH_FILE_VERSION is empty; the resolve step did not run' }
+          & "$env:ISCC" "/DMyAppVersion=$env:DSH_VERSION" "/DMyVersionInfoVersion=$env:DSH_FILE_VERSION" "/DBuildNumber=$env:BUILD_NUMBER" "installer\DeepSeekHarness.iss" | Write-Host
           if ($LASTEXITCODE -ne 0) { throw "ISCC failed with exit code $LASTEXITCODE" }
           $exe = Get-ChildItem dist -Filter '*.exe' | Select-Object -First 1
           if (-not $exe) { throw 'ISCC reported success but produced no .exe' }
