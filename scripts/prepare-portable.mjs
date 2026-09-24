@@ -308,11 +308,12 @@ function pruneStagedTree(config) {
     // developers, not for someone installing a desktop app.
     return name.endsWith('.md') || name.endsWith('.map') || name.endsWith('.d.ts');
   });
-  // Published packages run from `lib/`; `src/` is audit-only TypeScript that is
-  // ~20 MB per install. Pruning with the docs also keeps the installer well
-  // inside upload and mirror limits when it is distributed from a Release.
+  // Published packages usually run from `lib/`, but "usually" is not a safety
+  // argument: `koffi` is a package whose entry file is a one-line re-export from
+  // `src/`, and pruning it broke the very first installer build. `prunePackageSources`
+  // now removes `src` only when nothing in the package can load from it.
   const sourcesRemoved = prunePackageSources(modulesRoot);
-  log(`pruned ${removed} documentation/source-map entries and ${sourcesRemoved} package src/ trees`);
+  log(`pruned ${removed} documentation/source-map entries and ${sourcesRemoved} provably-unused package src/ trees`);
 }
 
 /** Write the provenance record carried inside the installer. */

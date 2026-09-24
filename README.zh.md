@@ -132,13 +132,29 @@ node scripts/smoke-test.mjs         # 用宿主 Node 跑 staging 里的 bin.js�
 4. **平台包校验**：`sharp`、`@img/sharp-win32-x64`、`node-addon-require-builtin`、
    `node-addon-require-builtin-win32-x64-msvc` 必须存在，否则直接失败。
 5. 瘦身：删掉 `node_modules` 里的 `*.md` / `*.map` / `*.d.ts` / LICENSE 副本
-   （在开发机的完整依赖树上量到 **76MB** 量级，占已打包体积的约 1/4），以及各包的 `src/` 源码目录
-   （入口指向 `src/` 的包会被跳过），让安装器和 Release 资产尽量小。
+   （在开发机的完整依赖树上量到 **76MB** 量级，占已打包体积的约 1/4），
+   以及**能被证明不会在运行时被加载**的包内 `src/` 目录（见下）。
 6. 生成 `build/build-info.json`（dsh 版本、Node 版本、commit、构建时间）与 `VERSION.txt`。
 7. **密钥断言**：staging 里出现 `.credentials.yaml`、`.env` 或 `sk-` 形态字符串就失败——安装包永不携带 key。
 8. **冒烟门禁**（Windows）：用打包好的 `node.exe` 跑 `--dump-default-config`，再真启动
    `--profile web --port 0`，抓带 token 的启动 URL、跟随跳转断言 `200` + `<title>DeepSeek Harness</title>`，
    并确认全新 home 会初始化 `profiles/web`，且没有写入任何 provider key。
+
+### 关于删 `src/`（一次真实事故的教训）
+
+第一次真机构建（Run #1）**就是死在这里**：`koffi` 包的 `index.js` 正文只有一行
+`export { default } from "./src/koffi/index.js"` —— **入口在包根、真正代码在 `src/`**。
+我原来的判断只看 package.json 的 `main`/`exports` 字段，于是把 `src/` 删了，用户装完会直接起不来。
+
+现在 `prunePackageSources` 的默认答案是**保留**，只有同时满足三条才删：
+
+1. `main`/`module`/`exports`/`bin` 都不指向 `src/`；
+2. 包内所有 `.js`/`.cjs`/`.mjs`（`src/` 之外）都没有相对导入 `src/`；
+3. `src/` 里没有 Node 能加载的文件——**无扩展名文件也算**（Node 会当 JS 解析）。
+
+在真实依赖树上实测：19 个包被保留（含 `koffi`、`protobufjs`、`debug`），只有 9 个可安全删除，
+**总共只省 332 KiB**。也就是说这项优化收益极小、风险却不小——它保留只是为了那点体积，
+判断逻辑有回归测试兜底。
 
 ---
 

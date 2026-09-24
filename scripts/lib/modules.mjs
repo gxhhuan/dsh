@@ -235,13 +235,21 @@ export function pruneTree(root, shouldRemove) {
 }
 
 /**
- * Remove `<package>/src` trees from a staged `node_modules`.
+ * Remove `<package>/src` trees from a staged `node_modules` — but only for
+ * packages that demonstrably do not load anything from `src` at runtime.
  *
- * The published packages run from `lib/` (or `dist/`), so `src` is audit-only
- * material: ~20 MB per install of TypeScript sources a user never executes.
- * Only a `src` directory that is the direct child of a package directory (the
- * one holding `package.json`) is removed — nested `src` folders are left alone,
- * because a dependency may resolve its runtime files through them.
+ * This is a distribution-size measure only, so the default answer is "keep".
+ * That matters: Run #1 of the installer build failed because a package's entry
+ * file was nothing but `export { default } from "./src/koffi/index.js"` — the
+ * public entry point lived *outside* `src` while the real code lived inside it,
+ * so a package.json-metadata check is not a sufficient safety test.
+ *
+ * A package's `src` is removed only when all three hold:
+ *   1. its `main`/`module`/`exports` entries do not point into `src/`, and
+ *   2. no `.js`/`.cjs`/`.mjs` file in that package (outside `src` itself)
+ *      imports or requires a relative `src/` path, and
+ *   3. the `src` tree holds no file Node could execute or load — extensionless
+ *      files count as executable, because Node resolves them as JavaScript.
  * @returns the number of removed directories.
  */
 export function prunePackageSources(nodeModulesRoot) {
@@ -250,18 +258,7 @@ export function prunePackageSources(nodeModulesRoot) {
   for (const packageDir of listPackageDirs(nodeModulesRoot)) {
     const srcDir = join(packageDir, 'src');
     if (!existsSync(join(packageDir, 'package.json')) || !existsSync(srcDir)) continue;
-    const manifest = readPackageJson(packageDir);
-    if (manifest === undefined) continue;
-    // Never touch a package whose entry points live under src (source-shipped packages).
-    const entryPoints = [
-      manifest.main,
-      manifest.module,
-      manifest.types,
-      ...Object.values(manifest.exports ?? {}).map((value) =>
-        typeof value === 'string' ? value : value?.default
-      )
-    ].filter((value) => typeof value === 'string');
-    if (entryPoints.some((value) => value.replace(/^\.\//, '').startsWith('src/'))) continue;
+    if (packageLoadsFromSrc(packageDir, srcDir)) continue;
     try {
       rmSync(srcDir, { recursive: true, force: true, maxRetries: 5 });
       removed += 1;
@@ -270,6 +267,55 @@ export function prunePackageSources(nodeModulesRoot) {
     }
   }
   return removed;
+}
+
+/** True when removing this package's `src` could break it at runtime. */
+export function packageLoadsFromSrc(packageDir, srcDir) {
+  const manifest = readPackageJson(packageDir);
+  if (manifest === undefined) return true;
+  if (declaredEntryTouchesSrc(manifest)) return true;
+  if (anyFileReferencesSrc(packageDir, srcDir)) return true;
+  if (walk(srcDir, (name) => /\.(js|cjs|mjs|json|node|wasm)$/i.test(name) || !name.includes('.')).length > 0) {
+    return true;
+  }
+  return false;
+}
+
+/** Do the package's declared entry points resolve inside `src/`? */
+function declaredEntryTouchesSrc(manifest) {
+  const entries = [manifest.main, manifest.module, manifest.types, manifest.typings];
+  const collect = (value) => {
+    if (typeof value === 'string') entries.push(value);
+    else if (Array.isArray(value)) value.forEach(collect);
+    else if (value !== null && typeof value === 'object') Object.values(value).forEach(collect);
+  };
+  collect(manifest.exports);
+  collect(manifest.bin);
+  return entries
+    .filter((value) => typeof value === 'string')
+    .some((value) => value.replace(/^\.\//, '').startsWith('src/'));
+}
+
+/** Does any retained module file import a relative path into `src/`? */
+function anyFileReferencesSrc(packageDir, srcDir) {
+  const files = walk(
+    packageDir,
+    (name) => /\.(js|cjs|mjs)$/i.test(name),
+    []
+  );
+  const insideSrc = resolve(srcDir);
+  for (const file of files) {
+    if (resolve(file).startsWith(insideSrc)) continue;
+    let text;
+    try {
+      text = readFileSync(file, 'utf8');
+    } catch {
+      // Unreadable file: be conservative and keep `src`.
+      return true;
+    }
+    if (/["']\.{1,2}\/src\//.test(text)) return true;
+  }
+  return false;
 }
 
 /** Every package directory, including scoped ones, directly under `nodeModulesRoot`. */

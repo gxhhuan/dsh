@@ -81,7 +81,9 @@ jobs:
           name: staging-diagnostics-attempt-${{ github.run_attempt }}
           path: |
             build/build-info.json
-            build/*.json
+            build/portable/VERSION.txt
+          # The smoke test prints its whole diagnostic to stdout, which the job
+          # log always carries; this artifact only adds the provenance record.
           if-no-files-found: ignore
 
       - name: Install Inno Setup
