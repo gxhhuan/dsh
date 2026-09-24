@@ -170,8 +170,10 @@ export { default } from "./src/koffi/index.js";
 - **`dsh plugin` 插件管理在装好的环境里不可用**：该命令把参数转发给 `pnpm`，而安装包不打包 pnpm。
   需要插件的人请装 Node + pnpm 后走标准 `dsh` CLI 流程。
 - **卸载不会删数据**：`%USERPROFILE%\.dsh` 默认保留，卸载时会问是否删除。
-- **安装器体积未在真机确认**：按 mac 上完整依赖树的量级推算可能落在 100~180MB，
-  但 GitHub Release 附件上限远高于此，不影响发布；`build-local.ps1` 跑完会打印实际体积。
+- **安装器体积：实测 46.8 MiB**（CI Run #6，约 380MB 未压缩的 staging 树）。
+  LZMA2/max 对 JS/JSON 这类高重复文本能压到 ~8:1：同一棵树单独用较弱的 `gzip -6`
+  压出来是 52 MiB，所以这个数字是"压得好"，不是"漏打包"。构建日志会同时打印
+  `staged` 与 `installer` 两个体积，便于对照。
 - 安装目录里没有前端构建步骤：Web 前端产物随 `@deepseek-ai/dsh` 包发布，目标机不需要 pnpm/build。
 - **安装器 exe 只对 x64 Windows 有效**：`ArchitecturesAllowed=x64compatible`，在 32 位系统上会直接拒绝安装。
 
