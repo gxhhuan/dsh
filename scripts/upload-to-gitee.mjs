@@ -119,7 +119,9 @@ async function createRelease({ repo, tag, title, notes, prerelease, token }) {
     tag_name: tag,
     name: title,
     body: notes,
-    target_commitish: 'master',
+    // Only consulted when the tag does not exist yet; Gitee uses it as the
+    // starting point for the new tag. Override if your default branch differs.
+    target_commitish: process.env.GITEE_TARGET_BRANCH ?? 'master',
     prerelease: String(prerelease)
   });
   const response = await fetch(`${API}/repos/${repo}/releases`, {
