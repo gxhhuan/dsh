@@ -406,6 +406,9 @@ function verifyStagedLayout(config) {
     config.binScript,
     join(config.portableDir, 'launchers', 'dsh.cmd'),
     join(config.portableDir, 'launchers', 'dsh-web-hidden.vbs'),
+    // Called by the uninstaller; a missing file would make every uninstall fail
+    // silently at its last step.
+    join(config.portableDir, 'launchers', 'dsh-stop.ps1'),
     join(config.portableDir, 'docs', 'API-KEY.txt')
   ];
   const missing = required.filter((entry) => !existsSync(entry));

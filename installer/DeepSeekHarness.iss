@@ -112,10 +112,13 @@ Name: "{userappdata}\Microsoft\Internet Explorer\Quick Launch\{#MyAppName}"; Fil
 Filename: "{app}\launchers\dsh-web-hidden.vbs"; Description: "立即启动 {#MyAppName}"; Flags: postinstall nowait skipifsilent shellexec
 
 [UninstallRun]
-; Bounded cleanup: kill the node process that holds our loopback listener, or
-; the running launcher shell. Never a blanket "kill every node.exe".
-; Single-quoted PowerShell payload, #13#10 for the semicolon-separated script.
-Filename: "{cmd}"; Parameters: "/c powershell -NoProfile -ExecutionPolicy Bypass -Command ""$ErrorActionPreference='SilentlyContinue'; $ids = @(Get-NetTCPConnection -State Listen | Where-Object { $_.LocalAddress -eq '127.0.0.1' } | Select-Object -ExpandProperty OwningProcess -Unique); $ids += @(Get-CimInstance Win32_Process -Filter 'Name=''node.exe''' | Where-Object { $_.CommandLine -like '*dsh*' } | Select-Object -ExpandProperty ProcessId); $ids | Sort-Object -Unique | ForEach-Object { taskkill /PID $_ /T /F }"""; Flags: runhidden; RunOnceId: "StopDsh"
+; Bounded cleanup lives in a script file rather than inline: an inline command
+; line needed four levels of nested quoting, and Inno Setup reads a bare '{' as
+; the start of a constant, so the '$_' of a PowerShell pipeline inside it
+; aborted the compile with 'Unknown constant'. The script targets the loopback
+; listener owner and node processes that name this installation — never a
+; blanket "kill every node.exe".
+Filename: "powershell.exe"; Parameters: "-NoProfile -ExecutionPolicy Bypass -File ""{app}\launchers\dsh-stop.ps1"""; Flags: runhidden; RunOnceId: "StopDsh"
 
 [UninstallDelete]
 ; Only files this installer created. %USERPROFILE%\.dsh is handled in code and
