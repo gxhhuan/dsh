@@ -1,0 +1,133 @@
+name: build-windows
+
+# Builds DeepSeek-Harness-Setup-<version>-x64.exe on a real Windows runner.
+#
+# Why Windows and not the developer's macOS: @deepseek-ai/dsh depends on
+# platform-specific optional packages (sharp-win32-x64,
+# node-addon-require-builtin-win32-x64-msvc). npm only fetches the variant
+# matching the machine that runs the install, so the staging step must run on
+# Windows — scripts/prepare-portable.mjs fails loudly anywhere else.
+#
+# Trigger it from the Actions tab (Run workflow) for an artifact, or push a tag
+# like v0.1.5-rc.3 to publish a GitHub Release with the installer attached.
+
+on:
+  workflow_dispatch:
+    inputs:
+      dsh_version:
+        description: '@deepseek-ai/dsh version to package'
+        required: true
+        default: '0.1.5-rc.3'
+        type: string
+      node_version:
+        description: 'Node.js runtime version to bundle'
+        required: true
+        default: '24.21.0'
+        type: string
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+env:
+  DSH_VERSION: ${{ inputs.dsh_version || '0.1.5-rc.3' }}
+  NODE_VERSION: ${{ inputs.node_version || '24.21.0' }}
+  DSH_ARCH: x64
+  # Optional: set a repository variable NPM_REGISTRY to point npm at a mirror
+  # when the default registry is slow or blocked. Empty means "use the default".
+  NPM_REGISTRY: ${{ vars.NPM_REGISTRY || '' }}
+  DSH_DIST_DIR: build
+
+jobs:
+  build:
+    runs-on: windows-latest
+    timeout-minutes: 45
+
+    steps:
+      - name: Check out the packaging repository
+        uses: actions/checkout@v4
+
+      - name: Set up the build Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+
+      - name: Show the resolved versions
+        shell: pwsh
+        run: |
+          Write-Host "dsh   : $env:DSH_VERSION"
+          Write-Host "node  : $env:NODE_VERSION"
+          Write-Host "arch  : $env:DSH_ARCH"
+          node --version
+          npm --version
+
+      - name: Stage the portable app (download Node, npm install, verify)
+        run: node scripts/prepare-portable.mjs
+
+      - name: Smoke-test the staged app (boot the Web UI for real)
+        run: node scripts/smoke-test.mjs
+
+      - name: Upload the staging log on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: staging-diagnostics
+          path: build/build-info.json
+          if-no-files-found: ignore
+
+      - name: Install Inno Setup
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          choco install innosetup --no-progress -y
+          $iscc = Join-Path ${env:ProgramFiles(x86)} 'Inno Setup 6\ISCC.exe'
+          if (-not (Test-Path $iscc)) { $iscc = Join-Path $env:ProgramFiles 'Inno Setup 6\ISCC.exe' }
+          if (-not (Test-Path $iscc)) { throw 'ISCC.exe not found after installing Inno Setup' }
+          "ISCC=$iscc" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+
+      - name: Compile the installer
+        shell: pwsh
+        run: |
+          & "$env:ISCC" "/DMyAppVersion=$env:DSH_VERSION" "installer\DeepSeekHarness.iss"
+          if ($LASTEXITCODE -ne 0) { throw "ISCC failed with exit code $LASTEXITCODE" }
+          Get-ChildItem dist
+
+      - name: Write SHA256SUMS
+        shell: pwsh
+        run: |
+          $files = Get-ChildItem dist -Filter '*.exe'
+          if ($files.Count -eq 0) { throw 'no installer was produced' }
+          $lines = foreach ($file in $files) {
+            $hash = (Get-FileHash $file.FullName -Algorithm SHA256).Hash.ToLower()
+            "$hash  $($file.Name)"
+          }
+          $lines | Set-Content -Path dist\SHA256SUMS.txt -Encoding ascii
+          $lines | ForEach-Object { Write-Host $_ }
+
+      - name: Upload the installer as a workflow artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: DeepSeek-Harness-Setup-x64
+          path: |
+            dist/*.exe
+            dist/SHA256SUMS.txt
+            build/build-info.json
+
+      - name: Publish a release when a tag was pushed
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dist/*.exe
+            dist/SHA256SUMS.txt
+          body: |
+            DeepSeek Harness for Windows x64.
+
+            - dsh `${{ env.DSH_VERSION }}`, bundled Node.js `${{ env.NODE_VERSION }}`
+            - Per-user install, no administrator rights required.
+            - Configure your own DeepSeek API key on first run (Settings -> Models).
+
+            SHA256 digests are in `SHA256SUMS.txt`.
+          fail_on_unmatched_files: true

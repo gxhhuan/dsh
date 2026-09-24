@@ -1,0 +1,26 @@
+{
+  "name": "dsh-windows-installer",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Windows x64 installer build for @deepseek-ai/dsh (DeepSeek Harness web GUI)",
+  "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "stage": "node scripts/prepare-portable.mjs",
+    "smoke": "node scripts/smoke-test.mjs",
+    "build": "node scripts/prepare-portable.mjs && node scripts/smoke-test.mjs"
+  },
+  "dsh": {
+    "dist": {
+      "appName": "DeepSeek Harness",
+      "dshPackage": "@deepseek-ai/dsh",
+      "dshVersion": "0.1.5-rc.3",
+      "nodeVersion": "24.21.0",
+      "arch": "x64",
+      "distRoot": "build",
+      "portableDir": "build/portable"
+    }
+  }
+}

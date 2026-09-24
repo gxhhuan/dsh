@@ -1,0 +1,5 @@
+build/
+dist/
+.npm-cache/
+node_modules/
+*.log
